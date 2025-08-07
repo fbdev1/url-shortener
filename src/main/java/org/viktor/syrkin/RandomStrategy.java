@@ -3,7 +3,7 @@ package org.viktor.syrkin;
 import java.util.concurrent.ThreadLocalRandom;
 
 public class RandomStrategy implements ShorteningStrategy{
-    private static final String CHARS = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+    private static final String CHARS = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ01234567890";
     private static final int LENGTH = 8;
 
     @Override
