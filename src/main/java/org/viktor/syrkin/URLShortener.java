@@ -2,12 +2,14 @@ package org.viktor.syrkin;
 
 import java.net.MalformedURLException;
 import java.net.URL;
+import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ThreadLocalRandom;
 
 public class URLShortener {
 
-    private final ConcurrentHashMap<String, String> urlToShort = new ConcurrentHashMap<>();
-    private final ConcurrentHashMap<String, String> shortToUrl = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<String, String> longToShort = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<String, String> shortToLong = new ConcurrentHashMap<>();
 
     private final ShorteningStrategy strategy;
 
@@ -20,27 +22,26 @@ public class URLShortener {
             throw new IllegalArgumentException("Invalid URL format");
         }
 
-        // Fast path: already shortened
-        String existing = urlToShort.get(longUrl);
-        if (existing != null) {
-            return existing;
-        }
-
-        // Generate new short URL
-        String shortUrl = strategy.generateShortUrl(longUrl);
-
-        // Atomically insert if absent
-        String prevShort = urlToShort.putIfAbsent(longUrl, shortUrl);
-        if (prevShort != null) {
-            return prevShort; // Another thread beat us
-        }
-
-        shortToUrl.put(shortUrl, longUrl); // This can safely go after
-        return shortUrl;
+        return longToShort.computeIfAbsent(longUrl, key -> {
+            String shortUrl = strategy.generateShortUrl(key);
+            while(shortToLong.containsKey(shortUrl)){
+                shortUrl = strategy.generateShortUrl(ThreadLocalRandom.current().nextInt() + key);
+            }
+            shortToLong.put(shortUrl, key);
+            return shortUrl;
+        });
     }
 
     public String unShorten(String shortUrl) {
-        return shortToUrl.get(shortUrl);
+        return shortToLong.get(shortUrl);
+    }
+
+    protected Map<String, String> retrieveLongUrls(){
+        return longToShort;
+    }
+
+    protected Map<String, String> retrieveShortUrls(){
+        return shortToLong;
     }
 
     private boolean isValidUrl(String url) {

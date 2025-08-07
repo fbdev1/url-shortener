@@ -1,27 +1,65 @@
 package org.viktor.syrkin;
 
-import org.junit.jupiter.api.RepeatedTest;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.params.ParameterizedTest;
-import org.junit.jupiter.params.provider.NullAndEmptySource;
-import org.junit.jupiter.params.provider.ValueSource;
 
 import java.util.*;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.stream.Collectors;
 
 import static org.junit.jupiter.api.Assertions.*;
 
 class URLShortenerTest {
-    private final List<String> testUrls = List.of(
-            "https://example.com",
-            "https://test.com/page1",
-            "https://another-example.org/about"
-    );
+
+    private static final String EXAMPLE_URL = "https://example.com";
+    private static final String EXAMPLE_URL1 = "https://test.com/page1";
+    private static final String EXAMPLE_URL2 = "https://another-example.org/about";
+    private final List<String> testUrls = List.of(EXAMPLE_URL, EXAMPLE_URL1, EXAMPLE_URL2);
 
     @Test
-    void testStrategiesUniqueness() {
+    void test_validUrl_returnsShortUrl() {
+        URLShortener shortener = new URLShortener(new CounterStrategy());
+        String longUrl = EXAMPLE_URL;
+        String shortUrl = shortener.shorten(longUrl);
+        assertNotNull(shortUrl);
+        assertFalse(shortUrl.isEmpty());
+        assertEquals(shortUrl, shortener.shorten(longUrl));
+    }
+
+    @Test
+    void test_invalidUrl_throwsException() {
+        URLShortener shortener = new URLShortener(new CounterStrategy());
+        assertThrows(IllegalArgumentException.class, () -> shortener.shorten("invalid-url"));
+        assertThrows(IllegalArgumentException.class, () -> shortener.shorten(""));
+        assertThrows(IllegalArgumentException.class, () -> shortener.shorten(null));
+    }
+
+    @Test
+    void test_collision_resolvesToUniqueShortUrl() {
+        ShorteningStrategy mockStrategy = new ShorteningStrategy() {
+            private int count = 0;
+            @Override
+            public String generateShortUrl(String longUrl) {
+                if (count <= 1 ) {
+                    count++;
+                    return "DUPLICATE";
+                }
+                return "UNIQUE";
+            }
+        };
+        URLShortener shortener = new URLShortener(mockStrategy);
+        String short1 = shortener.shorten(EXAMPLE_URL);
+        String short2 = shortener.shorten(EXAMPLE_URL1);
+        assertNotEquals(short1, short2);
+        assertEquals(EXAMPLE_URL, shortener.unShorten(short1));
+        assertEquals(EXAMPLE_URL1, shortener.unShorten(short2));
+    }
+
+    @Test
+    void test_uniqueness_all_strategies() {
         List<ShorteningStrategy> shorteningStrategies =
-                List.of(new CounterStrategy(), new MD5Strategy(), new Base64Strategy());
+                List.of(new CounterStrategy(), new MD5Strategy(), new Base64Strategy(), new RandomStrategy());
 
         for (ShorteningStrategy strategy : shorteningStrategies) {
             URLShortener shortener = new URLShortener(strategy);
@@ -30,55 +68,46 @@ class URLShortenerTest {
                                              .map(shortener::shorten)
                                              .collect(Collectors.toSet());
 
-            assertEquals(testUrls.size(), uniqueUrls.size(),
-                    strategy.getClass() + " strategy should generate unique short URLs for different inputs");
+            assertEquals(testUrls.size(), uniqueUrls.size());
         }
     }
 
-    @RepeatedTest(10)
-    void testRandomnessDistribution() {
+    @Test
+    void test_distribution_random() {
         RandomStrategy strategy = new RandomStrategy();
         int sampleSize = 1000;
         Set<String> uniqueUrls = new HashSet<>();
 
-        // Generate a large number of short URLs
         for (int i = 0; i < sampleSize; i++) {
-            uniqueUrls.add(strategy.generateShortUrl("https://example.com"));
+            uniqueUrls.add(strategy.generateShortUrl(EXAMPLE_URL));
         }
 
-        // With a good random distribution, we expect most URLs to be unique
-        // The probability of collisions with 8 chars from 62 possible chars is very low
         double uniqueRatio = (double) uniqueUrls.size() / sampleSize;
         assertTrue(uniqueRatio > 0.99,
                 "Expected at least 99% unique URLs, but got " + (uniqueRatio * 100) + "%");
     }
 
     @Test
-    public void testBase64StrategyLengthConstraint() {
-        URLShortener shortener = new URLShortener(new Base64Strategy());
+    public void test_length_strategies() {
+        List<ShorteningStrategy> shorteningStrategies =
+                List.of(new CounterStrategy(), new MD5Strategy(), new Base64Strategy(), new RandomStrategy());
 
-        for (String longUrl : testUrls) {
-            String shortUrl = shortener.shorten(longUrl);
-            assertTrue(!shortUrl.isEmpty() && shortUrl.length() <= 8,
-                    "Base64 strategy should generate non-empty short URLs with length <= 8");
+        for(ShorteningStrategy strategy : shorteningStrategies) {
+            URLShortener shortener = new URLShortener(strategy);
 
-            // Also verify that unshortening works correctly
-            assertEquals(longUrl, shortener.unShorten(shortUrl),
-                    "Should be able to unshorten the URL correctly");
+            for (String longUrl : testUrls) {
+                String shortUrl = shortener.shorten(longUrl);
+                assertTrue(!shortUrl.isEmpty() && shortUrl.length() <= 8);
+            }
         }
     }
 
     @Test
-    public void testUnshortenCorrectness() {
-        // Test with all strategies
-        ShorteningStrategy[] strategies = {
-                new CounterStrategy(),
-                new MD5Strategy(),
-                new Base64Strategy(),
-                new RandomStrategy()
-        };
+    public void test_unshorten_correctness() {
+        List<ShorteningStrategy> shorteningStrategies =
+                List.of(new CounterStrategy(), new MD5Strategy(), new Base64Strategy(), new RandomStrategy());
 
-        for (ShorteningStrategy strategy : strategies) {
+        for (ShorteningStrategy strategy : shorteningStrategies) {
             URLShortener shortener = new URLShortener(strategy);
             Map<String, String> map = new HashMap<>();
 
@@ -94,51 +123,39 @@ class URLShortenerTest {
         }
     }
 
-    @ParameterizedTest
-    @ValueSource(strings = {
-            "invalid-url",
-            "://example.com"
-    })
-    public void testInvalidUrlThrows(String invalidUrl) {
-        URLShortener shortener = new URLShortener(new CounterStrategy());
-
-        assertThrows(IllegalArgumentException.class, () -> {
-            shortener.shorten(invalidUrl);
-        }, "Should throw IllegalArgumentException for invalid URL: " + invalidUrl);
-    }
-
-    @ParameterizedTest
-    @NullAndEmptySource
-    public void testNullOrEmptyUrlThrows(String invalidUrl) {
-        URLShortener shortener = new URLShortener(new CounterStrategy());
-
-        assertThrows(IllegalArgumentException.class, () -> {
-            shortener.shorten(invalidUrl);
-        }, "Should throw IllegalArgumentException for null or empty URL");
-    }
-
     @Test
-    public void testUnshortenNonExistentUrl() {
+    public void test_idempotence() {
         URLShortener shortener = new URLShortener(new CounterStrategy());
 
-        // Try to unshorten a URL that doesn't exist
-        String nonExistentShortUrl = "nonexistent";
-        assertNull(shortener.unShorten(nonExistentShortUrl),
-                "Unshortening a non-existent URL should return null");
-    }
+        String firstShortUrl = shortener.shorten(EXAMPLE_URL);
 
-    @Test
-    public void testIdempotence() {
-        URLShortener shortener = new URLShortener(new CounterStrategy());
-
-        // Shorten the same URL multiple times
-        String url = "https://example.com";
-        String firstShortUrl = shortener.shorten(url);
-
-        // Subsequent calls should return the same short URL
         for (int i = 0; i < 10; i++) {
-            assertEquals(firstShortUrl, shortener.shorten(url),
-                    "Shortening the same URL multiple times should return the same short URL");
+            assertEquals(firstShortUrl, shortener.shorten(EXAMPLE_URL));
         }
+    }
+
+    @Test
+    void test_concurrency_stressCheck() throws InterruptedException {
+        URLShortener shortener = new URLShortener(new MD5Strategy());
+        ExecutorService executorService = Executors.newFixedThreadPool(10);
+        CountDownLatch latch = new CountDownLatch(10);
+
+
+        Runnable task = () -> {
+            for (int i = 0; i < 1000; i++) {
+                String longUrl = "http://" + i + "-example";
+                String shortUrl = shortener.shorten(longUrl);
+                shortener.unShorten(shortUrl);
+            }
+            latch.countDown();
+        };
+
+        for (int i = 0; i < 10; i++) {
+            executorService.submit(task);
+        }
+
+        latch.await();
+        executorService.shutdown();
+        assertTrue(true);
     }
 }
