@@ -2,7 +2,6 @@ package org.viktor.syrkin;
 
 import java.net.MalformedURLException;
 import java.net.URL;
-import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ThreadLocalRandom;
 
@@ -34,14 +33,6 @@ public class URLShortener {
 
     public String unShorten(String shortUrl) {
         return shortToLong.get(shortUrl);
-    }
-
-    protected Map<String, String> retrieveLongUrls(){
-        return longToShort;
-    }
-
-    protected Map<String, String> retrieveShortUrls(){
-        return shortToLong;
     }
 
     private boolean isValidUrl(String url) {
